@@ -1,16 +1,9 @@
 from __future__ import annotations
-
-import asyncio
-import io
-import pathlib
-import ssl
-import time
-import traceback
+import asyncio, io, pathlib, ssl, time, traceback, logging
 from threading import Thread, Event
 from typing import Union, List
 from asyncio import StreamReader, StreamWriter
 from bs4 import BeautifulSoup
-
 import kik_unofficial.callbacks as callbacks
 import kik_unofficial.datatypes.xmpp.chatting as chatting
 import kik_unofficial.datatypes.xmpp.group_adminship as group_adminship
@@ -30,15 +23,14 @@ from kik_unofficial.datatypes.xmpp.base_elements import XMPPElement, XMPPRespons
 from kik_unofficial.http_requests import profile_pictures, content
 from kik_unofficial.utilities.credential_utilities import random_device_id, random_android_id
 from kik_unofficial.utilities.logging_utils import set_up_basic_logging
-
 HOST, PORT = CryptographicUtils.get_kik_host_name(), 5223
+log = logging.getLogger('kik_unofficial')
 
 
 class KikClient:
     """
     The main kik class with which you're managing a kik connection and sending commands
     """
-
     def __init__(
             self,
             callback: callbacks.KikClientCallback,
@@ -47,7 +39,7 @@ class KikClient:
             kik_node: str = None,
             device_id: str = None,
             android_id: str = random_android_id(),
-            log_level: int = 20,
+            log_level: int = 1,
             enable_console_logging: bool = False,
             log_file_path: str = None,
             disable_auth_cert: bool = True
@@ -190,20 +182,39 @@ class KikClient:
     # Common Messaging Operations
     # -------------------------------
 
-    def send_chat_message(self, peer_jid: str, message: str):
+    # def send_chat_message(self, peer_jid: str, message: str):
+        # """
+        # Sends a text chat message to another person or a group with the given JID/username.
+
+        # :param peer_jid: The Jabber ID for which to send the message (looks like username_ejs@talk.kik.com)
+                         # If you don't know the JID of someone, you can also specify a kik username here.
+        # :param message: The actual message body
+        # """
+        # peer_jid = self.get_jid(peer_jid)
+
+        # chat_message = chatting.OutgoingChatMessage(peer_jid, message)
+        # self.log.info(f"Sending chat message '{message}' to {'group' if chat_message.is_group else 'chat'} '{peer_jid}'...")
+        # return self._send_xmpp_element(chat_message)
+
+    def send_chat_message(self, peer_jid, message, bot_mention_jid=None):
         """
         Sends a text chat message to another person or a group with the given JID/username.
 
         :param peer_jid: The Jabber ID for which to send the message (looks like username_ejs@talk.kik.com)
                          If you don't know the JID of someone, you can also specify a kik username here.
         :param message: The actual message body
+        :param bot_mention_jid: If an official bot is referenced, their jid must be embedded as mention for them
+        to respond.
         """
         peer_jid = self.get_jid(peer_jid)
 
-        chat_message = chatting.OutgoingChatMessage(peer_jid, message)
-        self.log.info(f"Sending chat message '{message}' to {'group' if chat_message.is_group else 'chat'} '{peer_jid}'...")
-        return self._send_xmpp_element(chat_message)
-
+        if self.is_group_jid(peer_jid):
+            log.info(f"Sending chat message '{message}' to group '{peer_jid}'...")
+            return self._send_xmpp_element(chatting.OutgoingGroupChatMessage(peer_jid, message))
+        else:
+            log.info(f"Sending chat message '{message}' to user '{peer_jid}'...")
+            return self._send_xmpp_element(chatting.OutgoingChatMessage(peer_jid, message, False))
+    
     def send_chat_image(self, peer_jid: str, file, forward: bool = True):
         """
         Sends an image chat message to another person or a group with the given JID/username.
@@ -880,7 +891,8 @@ class KikClient:
         self._connect()
 
     def get_jid(self, username_or_jid):
-        if jid_utilities.is_pm_jid(username_or_jid):
+        # if jid_utilities.is_pm_jid(username_or_jid):
+        if '@' in username_or_jid:
             # this is already a JID.
             return username_or_jid
 
@@ -904,9 +916,22 @@ class KikClient:
 
         return None
 
+    # @staticmethod
+    # def is_group_jid(jid: str) -> bool:
+        # return jid_utilities.is_group_jid(jid)
+   
     @staticmethod
-    def is_group_jid(jid: str) -> bool:
-        return jid_utilities.is_group_jid(jid)
+    def is_group_jid(jid):
+        if '@talk.kik.com' in jid:
+            return False
+        elif '@groups.kik.com' in jid:
+            return True
+        else:
+            raise exceptions.KikApiException('Not a valid jid')
+              
+    @staticmethod
+    def log_format():
+        return '[%(asctime)-15s] (%(threadName)-10s):\n%(message)s\n\n'
 
 
 class KikConnection:
