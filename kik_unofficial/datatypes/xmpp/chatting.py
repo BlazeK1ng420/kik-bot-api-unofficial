@@ -1,45 +1,69 @@
 """
 Defines classes for dealing with generic chatting (text messaging, read receipts, etc)
 """
-
 from __future__ import annotations
-
 import time
 from typing import Union
-
 from bs4 import BeautifulSoup
 from lxml import etree
 from lxml.etree import Element
-
 from kik_unofficial.datatypes.peers import Group
 from kik_unofficial.datatypes.xmpp.base_elements import XMPPElement, XMPPResponse, XMPPContentResponse, \
     XMPPReceiptResponse, XMPPOutgoingContentMessageElement, XMPPOutgoingMessageElement, XMPPOutgoingIsTypingMessageElement
 from kik_unofficial.http_requests.tenor_client import KikTenorClient
 from kik_unofficial.utilities.parsing_utilities import ParsingUtilities, get_text_of_tag, get_optional_attribute
 
+# class OutgoingChatMessage(XMPPOutgoingMessageElement):
+    # """
+    # Represents an outgoing text chat message to another kik entity (member or group)
+    # """
+    # def __init__(self, peer_jid: str, body: str):
+        # super().__init__(peer_jid)
+        # self.body = body
 
-class OutgoingChatMessage(XMPPOutgoingMessageElement):
+    # def serialize_message(self, message: Element) -> None:
+        # etree.SubElement(message, 'body').text = self.body
+        # etree.SubElement(message, 'preview').text = self.body[:20]
+        # self.add_kik_element(message, push=True, qos=True)
+        # self.add_request_element(message, request_delivered=True, request_read=True)
+        # self.add_empty_element(message, 'ri')
+
+
+class OutgoingChatMessage(XMPPElement):
     """
     Represents an outgoing text chat message to another kik entity (member or group)
     """
-
-    def __init__(self, peer_jid: str, body: str):
-        super().__init__(peer_jid)
+    def __init__(self, peer_jid, body, is_group=False):
+        super().__init__()
+        self.peer_jid = peer_jid
         self.body = body
+        self.is_group = is_group
 
-    def serialize_message(self, message: Element) -> None:
-        etree.SubElement(message, 'body').text = self.body
-        etree.SubElement(message, 'preview').text = self.body[:20]
-        self.add_kik_element(message, push=True, qos=True)
-        self.add_request_element(message, request_delivered=True, request_read=True)
-        self.add_empty_element(message, 'ri')
+    def serialize(self):
+        timestamp = str(int(round(time.time() * 1000)))
+        message_type = "groupchat" if self.is_group else "chat"
+        data = (f'<message type="{message_type}" to="{self.peer_jid}" id="{self.message_id}" cts="{timestamp}">'
+                f'<body>{ParsingUtilities.escape_xml(self.body)}</body>'
+                '<blaze get-lit="true"/>'
+                f'<preview>{ParsingUtilities.escape_xml(self.body[:20])}</preview>'
+                f'<kik push="true" qos="true" timestamp="{timestamp}" />'
+                '<request xmlns="kik:message:receipt" r="true" d="true" />'
+                '<ri></ri>'
+                '</message>')
+        return data.encode()
 
-
+class OutgoingGroupChatMessage(OutgoingChatMessage):
+    """
+    Represents an outgoing text chat message to a group
+    """
+    def __init__(self, group_jid, body):
+        super().__init__(group_jid, body, is_group=True)
+        
+        
 class OutgoingChatImage(XMPPOutgoingContentMessageElement):
     """
    Represents an outgoing image chat message to another kik entity (member or group)
    """
-
     def __init__(self, peer_jid: str, file_location, forward: bool = True):
         super().__init__(peer_jid, app_id='com.kik.ext.gallery')
         self.allow_forward = forward
@@ -51,11 +75,9 @@ class OutgoingChatImage(XMPPOutgoingContentMessageElement):
         self.set_allow_forward(self.allow_forward)
         self.add_string('file-content-type', 'image/jpeg')
         self.add_string('file-name', f'{self.content_id}.jpg')
-
         self.add_hash('sha1-original', self.parsed['SHA1'])
         self.add_hash('sha1-scaled', self.parsed['SHA1Scaled'])
         self.add_hash('blockhash-scaled', self.parsed['blockhash'])
-
         self.add_image('preview', self.parsed['image_bytes'])
 
 
@@ -63,7 +85,6 @@ class IncomingChatMessage(XMPPResponse):
     """
     Represents an incoming text chat message from another user
     """
-
     def __init__(self, data: BeautifulSoup):
         super().__init__(data)
         self.preview = get_text_of_tag(data, 'preview')
@@ -74,10 +95,8 @@ class IncomingGroupChatMessage(IncomingChatMessage):
     """
     Represents an incoming text chat message from a group
     """
-
     def __init__(self, data: BeautifulSoup):
         super().__init__(data)
-        # Messages from public groups include an alias user which can be resolved with client.xiphias_get_users_by_alias
         self.alias_sender = get_text_of_tag(data, 'alias-sender')
 
 
@@ -85,7 +104,6 @@ class OutgoingReadReceipt(XMPPOutgoingMessageElement):
     """
     Represents an outgoing read receipt to a specific user, for one or more messages
     """
-
     def __init__(self, peer_jid: str, receipt_message_id: Union[str, list[str]], group_jid: Union[str, None] = None):
         super().__init__(peer_jid)
         self.group_jid = group_jid
@@ -100,7 +118,7 @@ class OutgoingReadReceipt(XMPPOutgoingMessageElement):
         for receipt_id in self.receipt_message_ids:
             msgid = etree.SubElement(receipt, 'msgid')
             msgid.set('id', receipt_id)
-
+            {}
         if self.group_jid:
             g = etree.SubElement(message, 'g')
             g.set('jid', self.group_jid)
@@ -110,7 +128,6 @@ class OutgoingIsTypingEvent(XMPPOutgoingIsTypingMessageElement):
     """
     Represents an outgoing is-typing event
     """
-
     def __init__(self, peer_jid: str, is_typing: bool):
         super().__init__(peer_jid, is_typing)
 
@@ -213,7 +230,6 @@ class IncomingFriendAttribution(XMPPResponse):
         self.referrer_name = None
         self.reply = None
         self.body = None
-
         friend_attribution = data.find('friend-attribution', recursive=False)
         context = friend_attribution.find('context', recursive=False)
         if context:
@@ -223,7 +239,6 @@ class IncomingFriendAttribution(XMPPResponse):
             self.referrer_url = get_optional_attribute(context, 'url')
             self.referrer_name = get_optional_attribute(context, 'name')
             self.reply = get_optional_attribute(context, 'reply') == 'true'
-
             body = friend_attribution.find('body', recursive=False)
             # mobile clients remove quotes from the beginning and end of the string
             self.body = body.text.strip('"') if body else None
@@ -234,7 +249,6 @@ class IncomingImageMessage(XMPPContentResponse):
         super().__init__(data)
         self.image_url = self.file_url
 
-
 class IncomingGroupSticker(XMPPContentResponse):
     def __init__(self, data: BeautifulSoup):
         super().__init__(data)
@@ -244,14 +258,11 @@ class IncomingGroupSticker(XMPPContentResponse):
         self.sticker_source = self.extras.get('sticker_source')    # type: str | None
         self.png_preview = self.images.get('png-preview')          # type: bytes | None
 
-
 class IncomingGifMessage(XMPPContentResponse):
     """
     Represents an incoming GIF message.
-
     See self.uris for the list of GIF URLs.
     """
-
     def __init__(self, data: BeautifulSoup):
         super().__init__(data)
 
@@ -260,7 +271,6 @@ class OutgoingGIFMessage(XMPPOutgoingContentMessageElement):
     """
     Represents an outgoing GIF message to another kik entity (member or group)
     """
-
     def __init__(self, peer_jid: str, search_term: str, api_key: str):
         super().__init__(peer_jid, app_id='com.kik.ext.gif')
         self.allow_forward = True
@@ -274,10 +284,8 @@ class OutgoingGIFMessage(XMPPOutgoingContentMessageElement):
         self.set_video_autoplay(True)
         self.set_video_loop(True)
         self.set_video_muted(True)
-
         self.add_image('icon', b'')
         self.add_image('preview', self.gif_preview)
-
         self.add_uri(url=self.gif_data["mp4"]["url"], priority='0', type='video', file_content_type='video/mp4')
         self.add_uri(url=self.gif_data["webm"]["url"], priority='1', type='video', file_content_type='video/webm')
         self.add_uri(url=self.gif_data["tinymp4"]["url"], priority='0', type='video', file_content_type='video/tinymp4')
@@ -294,7 +302,6 @@ class IncomingVideoMessage(XMPPContentResponse):
         self.duration_milliseconds = self.strings.get('duration')       # type: str | None
         self.file_size = self.strings.get('file-size')                  # type: str | None
 
-
 class IncomingCardMessage(XMPPContentResponse):
     def __init__(self, data: BeautifulSoup):
         super().__init__(data)
@@ -307,7 +314,6 @@ class IncomingCardMessage(XMPPContentResponse):
         self.icon = self.images.get('icon')                               # type: bytes | None
         self.uri = self.uris[0] if len(self.uris) > 0 else None
 
-
 class KikPingRequest(XMPPElement):
     def __init__(self):
         super().__init__()
@@ -315,30 +321,23 @@ class KikPingRequest(XMPPElement):
     def serialize(self) -> bytes:
         return b'<ping/>'
 
-
 class KikPongResponse:
     """
     Response to a <ping/> request to kik servers
-
     :param latency: the round trip time of ping to pong, measured in milliseconds.
     """
     def __init__(self, latency: int):
         self.received_time = time.time()
         self.latency = latency
-
     def __str__(self):
         return f'pong ({self.latency} ms)'
-
     def __repr__(self):
         return f'KikPongResponse(received_time={self.received_time}, latency={self.latency})'
-
 
 class IncomingErrorMessage(XMPPResponse):
     """
     Received as an 'error' type in response to an outgoing message.
-
     The ID of this message should contain the same ID corresponding to the message that triggered the error.
-
     This can be used for retry logic when sending messages or debugging.
     """
     def __init__(self, data: BeautifulSoup):
