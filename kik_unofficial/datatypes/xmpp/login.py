@@ -208,7 +208,7 @@ class CaptchaElement:
 
     def __init__(self, data: BeautifulSoup):
         self.type = data.stp['type']
-        self.captcha_url = f"{data.stp.text}&callback_url=https://kik.com/captcha-url"
+        self.captcha_url = f"{data.stp.text}&callback_url=https://blazek1ng420.github.io/pages/token"
         self.stc_id = data['id']
 
 
